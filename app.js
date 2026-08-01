@@ -29,7 +29,7 @@ let state = {
     targetCount: 25, // Default target
     sensitivity: 15,
     smoothing: 5,
-    unitSize: 45, // Default grid cells per invitation (Mode C)
+    unitSize: 75, // Default grid cells per invitation for 40x30 resolution
     currentFacingMode: 'environment', // Start with back camera
     videoStream: null,
     calibratedBaseline: null, // Baseline for slide mode
@@ -45,9 +45,9 @@ let state = {
 // Cached profile for auto-calibration
 let cachedLuminanceProfile = null;
 
-// Grid configurations for Full Table Detection (Mode C)
-const GRID_COLS = 28;
-const GRID_ROWS = 21;
+// Grid configurations for Full Table Detection (Mode C) - Higher resolution for precise dimensions
+const GRID_COLS = 40;
+const GRID_ROWS = 30;
 
 // UI Elements
 const videoEl = document.getElementById('video');
@@ -606,12 +606,11 @@ function runSlideDetection(frameData, width, height) {
     ctx.fillText(`Desv: ${Math.round(colorDist)} | Mov: ${Math.round(motionVal)} | Umb: ${Math.round(presenceThreshold)}`, rx + 10, ry + 16);
 }
 
-// Mode C: Meticulous Full Table grid object detection with area-based bundle estimation ("conteo en conjunto")
+// Mode C: Meticulous Full Table grid object detection with Auto-Exposure Compensation & Area Bundle Estimation
 function runTableDetection(frameData, width, height) {
     const cellW = width / GRID_COLS;
     const cellH = height / GRID_ROWS;
     
-    // Sliders adaptively control parameters:
     const colorDistThreshold = state.sensitivity + 10;
     const minBlobCells = state.smoothing + 1;
 
@@ -619,7 +618,6 @@ function runTableDetection(frameData, width, height) {
 
     // Grid baseline calibration check with black frame prevention
     if (state.gridBaseline === null) {
-        // First verify average screen brightness is not pitch black
         let sampleSum = 0;
         for (let r = 0; r < GRID_ROWS; r++) {
             for (let c = 0; c < GRID_COLS; c++) {
@@ -656,8 +654,10 @@ function runTableDetection(frameData, width, height) {
         return;
     }
 
-    // Binary grid representing presence of paper vs baseline
-    let activeGrid = new Uint8Array(GRID_COLS * GRID_ROWS);
+    // ADVANCED ILLUMINATION COMPENSATION (Cancels phone's camera auto-exposure changes!)
+    // Calculate global brightness/color shift of background cells
+    let shiftR = 0, shiftG = 0, shiftB = 0;
+    let bgCellCount = 0;
 
     for (let r = 0; r < GRID_ROWS; r++) {
         for (let c = 0; c < GRID_COLS; c++) {
@@ -669,6 +669,37 @@ function runTableDetection(frameData, width, height) {
             const dR = data[idx] - base.r;
             const dG = data[idx+1] - base.g;
             const dB = data[idx+2] - base.b;
+            const dist = Math.sqrt(dR*dR + dG*dG + dB*dB);
+            
+            // If the cell hasn't changed significantly, it's considered background.
+            // We use it to measure the camera's automatic gain/exposure adjustments.
+            if (dist < 22) {
+                shiftR += dR;
+                shiftG += dG;
+                shiftB += dB;
+                bgCellCount++;
+            }
+        }
+    }
+
+    const offsetR = bgCellCount > 15 ? (shiftR / bgCellCount) : 0;
+    const offsetG = bgCellCount > 15 ? (shiftG / bgCellCount) : 0;
+    const offsetB = bgCellCount > 15 ? (shiftB / bgCellCount) : 0;
+
+    // Binary grid representing presence of paper vs baseline (exposure adjusted)
+    let activeGrid = new Uint8Array(GRID_COLS * GRID_ROWS);
+
+    for (let r = 0; r < GRID_ROWS; r++) {
+        for (let c = 0; c < GRID_COLS; c++) {
+            const sampleX = Math.floor((c + 0.5) * cellW);
+            const sampleY = Math.floor((r + 0.5) * cellH);
+            const idx = (sampleY * width + sampleX) * 4;
+            
+            const base = state.gridBaseline[r * GRID_COLS + c];
+            // Apply exposure offset to the base color
+            const dR = data[idx] - (base.r + offsetR);
+            const dG = data[idx+1] - (base.g + offsetG);
+            const dB = data[idx+2] - (base.b + offsetB);
             const dist = Math.sqrt(dR*dR + dG*dG + dB*dB);
             
             // HAND / ARM REJECTION FILTER: Skin tone detection
