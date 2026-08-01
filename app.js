@@ -37,7 +37,8 @@ let state = {
     lastSlideTime: 0,
     voiceEnabled: true, // TTS active
     torchActive: false, // Flash/Torch state
-    successChimeTriggered: false
+    successChimeTriggered: false,
+    lastFrameColor: null // Stores previous frame color in ROI to compute motion
 };
 
 // Cached profile for auto-calibration
@@ -316,7 +317,7 @@ function processFrame() {
     // Draw video feed on canvas
     ctx.drawImage(videoEl, 0, 0, width, height);
 
-    // Capture screen pixel data ONCE per frame (crucial optimization for mobile)
+    // Capture screen pixel data ONCE per frame
     const frameData = ctx.getImageData(0, 0, width, height);
 
     if (state.mode === 'edge') {
@@ -395,7 +396,6 @@ function runEdgeDetection(frameData, width, height) {
     const endY = Math.floor(height * 0.9);
     const scanHeight = endY - startY;
 
-    // Draw guide box
     ctx.strokeStyle = 'rgba(255, 59, 48, 0.4)';
     ctx.lineWidth = 1;
     ctx.strokeRect(scanX - scanWidth / 2, startY, scanWidth, scanHeight);
@@ -502,7 +502,7 @@ function runSlideDetection(frameData, width, height) {
 
     const data = frameData.data;
 
-    // Sub-sample pixels inside the ROI (every 4th pixel is 16x faster and completely accurate)
+    // Sub-sample pixels inside the ROI
     let sumR = 0, sumG = 0, sumB = 0, count = 0;
     for (let y = ry; y < ry + rh; y += 4) {
         for (let x = rx; x < rx + rw; x += 4) {
@@ -532,12 +532,23 @@ function runSlideDetection(frameData, width, height) {
             b: avgB,
             brightness: currentBrightness
         };
+        state.lastFrameColor = { r: avgR, g: avgG, b: avgB };
         statusAlertEl.textContent = "Listo. Pasa las tarjetas.";
         statusAlertEl.style.borderColor = "var(--success)";
         speakText("Listo para contar. Pasa las tarjetas.");
         return;
     }
 
+    // Measure motion relative to previous frame to detect active swipe movement
+    const dR_motion = avgR - state.lastFrameColor.r;
+    const dG_motion = avgG - state.lastFrameColor.g;
+    const dB_motion = avgB - state.lastFrameColor.b;
+    const motionVal = Math.sqrt(dR_motion*dR_motion + dG_motion*dG_motion + dB_motion*dB_motion);
+
+    // Save current color for next frame
+    state.lastFrameColor = { r: avgR, g: avgG, b: avgB };
+
+    // Measure static difference from calibrated baseline
     const diffR = avgR - state.calibratedBaseline.r;
     const diffG = avgG - state.calibratedBaseline.g;
     const diffB = avgB - state.calibratedBaseline.b;
@@ -548,6 +559,7 @@ function runSlideDetection(frameData, width, height) {
     const now = Date.now();
     const cooldown = 650;
 
+    // TRIGGER logic: Count increment requires color shift AND active motion (avoids static shadow locks)
     if (colorDist > presenceThreshold) {
         ctx.strokeStyle = 'var(--danger)';
         ctx.lineWidth = 4;
@@ -555,26 +567,36 @@ function runSlideDetection(frameData, width, height) {
         ctx.fillStyle = 'rgba(255, 59, 48, 0.12)';
         ctx.fillRect(rx, ry, rw, rh);
 
-        if (!state.slideActive && (now - state.lastSlideTime > cooldown)) {
+        if (!state.slideActive && (motionVal > 1.8) && (now - state.lastSlideTime > cooldown)) {
             state.slideActive = true;
             state.lastSlideTime = now;
             updateCounterDisplay(state.count + 1);
+        }
+
+        // Timeout fallback: If active state is locked for > 1.3 seconds (user leaves hand or card inside),
+        // release the lock and slowly blend current color into baseline to auto-recalibrate
+        if (state.slideActive && (now - state.lastSlideTime > 1300)) {
+            state.slideActive = false;
+            state.calibratedBaseline.r = state.calibratedBaseline.r * 0.75 + avgR * 0.25;
+            state.calibratedBaseline.g = state.calibratedBaseline.g * 0.75 + avgG * 0.25;
+            state.calibratedBaseline.b = state.calibratedBaseline.b * 0.75 + avgB * 0.25;
         }
     } else {
         ctx.strokeStyle = 'var(--success)';
         ctx.lineWidth = 3;
         ctx.strokeRect(rx, ry, rw, rh);
 
+        // Deactivate slide state when color returns to baseline range
         if (state.slideActive && (now - state.lastSlideTime > 250)) {
             state.slideActive = false;
         }
     }
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(rx + 6, ry + 6, 125, 24);
+    ctx.fillRect(rx + 6, ry + 6, 140, 24);
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px Inter';
-    ctx.fillText(`Desv: ${Math.round(colorDist)} | Umbral: ${Math.round(presenceThreshold)}`, rx + 12, ry + 22);
+    ctx.font = 'bold 9px Inter';
+    ctx.fillText(`Desv: ${Math.round(colorDist)} | Mov: ${Math.round(motionVal)} | Umb: ${Math.round(presenceThreshold)}`, rx + 10, ry + 16);
 }
 
 // Mode C: Meticulous Full Table grid object detection using highly optimized single-buffer array reads (0 ms blocking lag!)
@@ -642,7 +664,15 @@ function runTableDetection(frameData, width, height) {
             const dB = data[idx+2] - base.b;
             const dist = Math.sqrt(dR*dR + dG*dG + dB*dB);
             
-            if (dist > colorDistThreshold) {
+            // HAND / ARM REJECTION FILTER: Skin tone detection
+            // Human skin typically has: R > 90, G > 60, B > 45, R > G, G > B and high saturation of red/yellow.
+            // White/blue invitations are highly neutral (R, G, B are close to each other, low saturation).
+            const R = data[idx];
+            const G = data[idx+1];
+            const B = data[idx+2];
+            const isSkinColor = (R > 85 && G > 55 && B > 40 && R > G && G > B && (R - G > 12) && (R - G < 70) && (G - B > 5));
+
+            if (dist > colorDistThreshold && !isSkinColor) {
                 activeGrid[r * GRID_COLS + c] = 1;
                 
                 // Draw faint indicator on canvas
@@ -693,8 +723,16 @@ function runTableDetection(frameData, width, height) {
                     }
                 }
                 
+                // Keep blob if size meets threshold limits
                 if (size >= minBlobCells && size <= 150) {
-                    blobs.push({ minC, maxC, minR, maxR, size });
+                    // HAND / ARM REJECTION FILTER: Boundary touch detection
+                    // Hand/arm enters from borders, so it will touch at least one outer boundary of the grid.
+                    // An invitation placed on the table is self-contained and does NOT touch the borders.
+                    const touchesBorder = (minC === 0 || maxC === GRID_COLS - 1 || minR === 0 || maxR === GRID_ROWS - 1);
+                    
+                    if (!touchesBorder) {
+                        blobs.push({ minC, maxC, minR, maxR, size });
+                    }
                 }
             }
         }
