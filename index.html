@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Contador de Invitaciones Exacto (25)</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts for premium typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-container">
+                <span class="pulse-dot"></span>
+                <h1>CONTADOR AUTOMÁTICO</h1>
+            </div>
+            <div class="target-badge" id="target-display">META: 25</div>
+        </header>
+
+        <!-- Main Camera & Visualizer Viewport -->
+        <main class="viewport-section">
+            <div class="camera-wrapper">
+                <video id="video" autoplay playsinline muted></video>
+                <canvas id="canvas"></canvas>
+                
+                <!-- Camera Overlay / HUD -->
+                <div class="camera-hud">
+                    <!-- Scanner Lines or Area Boxes depending on mode -->
+                    <div id="edge-guide" class="edge-scan-guide hidden">
+                        <div class="guide-line"></div>
+                        <div class="guide-label">Alinea el borde de la pila aquí</div>
+                    </div>
+                    
+                    <div id="slide-roi" class="slide-roi-box hidden">
+                        <div class="roi-label">Pasa la invitación por aquí</div>
+                    </div>
+
+                    <!-- Live Status Alert -->
+                    <div id="status-alert" class="status-alert">Esperando cámara...</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Stats & Main Count Panel -->
+        <section class="counter-display-panel">
+            <div class="count-circle-container">
+                <div class="glow-ring" id="glow-ring"></div>
+                <div class="count-circle">
+                    <span id="current-count" class="count-number">0</span>
+                    <span class="count-total" id="target-denominator">/ 25</span>
+                </div>
+            </div>
+            
+            <div class="count-status-text" id="count-status-text">
+                Comienza a escanear o deslizar
+            </div>
+        </section>
+
+        <!-- Calibration & Controls Panel -->
+        <section class="controls-panel">
+            <!-- Mode Switcher -->
+            <div class="mode-selector-wrapper">
+                <button id="btn-mode-edge" class="mode-btn active">
+                    <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 5h18v2H3zm0 5h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+                    Pila (Bordes)
+                </button>
+                <button id="btn-mode-slide" class="mode-btn">
+                    <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M19 15v-3H5v3h14m2-5v10H3V10h18M5 5h14v3H5V5z"/></svg>
+                    Deslizar
+                </button>
+                <button id="btn-mode-detect" class="mode-btn">
+                    <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M4 4h7v7H4zm10 0h7v7h-7zM4 14h7v7H4zm10 0h7v7h-7z"/></svg>
+                    Mesa (Inteligente)
+                </button>
+            </div>
+
+            <!-- Target Selection Row -->
+            <div class="target-selector-container">
+                <span class="section-label">Cantidad Meta:</span>
+                <div class="target-presets">
+                    <button class="target-btn" data-target="10">10</button>
+                    <button class="target-btn" data-target="20">20</button>
+                    <button class="target-btn active" data-target="25">25</button>
+                    <button class="target-btn" data-target="50">50</button>
+                    <input type="number" id="custom-target" min="1" max="500" placeholder="Otro">
+                </div>
+            </div>
+
+            <!-- Speech & Flash Toggles -->
+            <div class="toggle-controls-row">
+                <button id="btn-toggle-voice" class="toggle-btn active">
+                    <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    Voz: SI
+                </button>
+                <button id="btn-toggle-torch" class="toggle-btn">
+                    <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 2h10v2H7zm2 6h6V4H9zm0 8H5v-4h4zm10-4h-4v4h4zm-6 6h-2v4h2zm-2-8h2v6h-2z"/></svg>
+                    Linterna: NO
+                </button>
+            </div>
+
+            <!-- Calibrators (Only for Edge Scan Mode) -->
+            <div id="edge-controls" class="control-group">
+                <div class="slider-row">
+                    <div class="slider-label-row">
+                        <label for="slider-sens">Sensibilidad (Umbral):</label>
+                        <span id="val-sens">15</span>
+                    </div>
+                    <input type="range" id="slider-sens" min="2" max="60" value="15">
+                </div>
+
+                <div class="slider-row">
+                    <div class="slider-label-row">
+                        <label for="slider-smooth">Suavizado:</label>
+                        <span id="val-smooth">5</span>
+                    </div>
+                    <input type="range" id="slider-smooth" min="1" max="15" value="5">
+                </div>
+
+                <!-- Autocalibrate button -->
+                <button id="btn-autocalibrate" class="action-btn btn-accent">
+                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
+                    Autocalibrar para <span id="autocalibrate-target-num">25</span>
+                </button>
+                
+                <!-- Real-time signal chart -->
+                <div class="chart-container">
+                    <canvas id="chart-canvas" height="60"></canvas>
+                    <div class="chart-title">Señal de contraste de bordes</div>
+                </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="action-buttons-row">
+                <button id="btn-reset" class="action-btn btn-secondary">
+                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                    Reiniciar
+                </button>
+                <button id="btn-camera-toggle" class="action-btn btn-primary">
+                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12zM12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/></svg>
+                    Girar Cámara
+                </button>
+            </div>
+        </section>
+
+        <!-- Instructions Panel -->
+        <section class="instructions-panel">
+            <h2>Cómo contar de manera automática:</h2>
+            
+            <div id="instruction-edge" class="instruction-content">
+                <ol>
+                    <li>Sostén la pila de invitaciones e inclínala/dóblala un poco en forma de <strong>abanico</strong> (como en la foto de WhatsApp) para separar los bordes.</li>
+                    <li>Sostén la pila frente a la cámara alineando el lateral con la <strong>línea roja</strong>.</li>
+                    <li>Presiona el botón <strong>Autocalibrar</strong>: el celular probará ajustes automáticamente hasta encontrar tu meta.</li>
+                    <li>Si activas la **Voz**, el celular te dirá en voz alta cuando alcances la meta.</li>
+                </ol>
+            </div>
+
+            <div id="instruction-slide" class="instruction-content hidden">
+                <ol>
+                    <li>Coloca el celular en una posición fija apuntando hacia la mesa.</li>
+                    <li>Alinea el recuadro verde con un espacio despejado de la mesa y presiona **Reiniciar** para calibrar el fondo.</li>
+                    <li>Desliza las invitaciones una por una por el **recuadro verde**.</li>
+                    <li>El celular cantará los números y te dirá: *"¡Ya llegaste a [Meta]!"* en voz alta.</li>
+                </ol>
+            </div>
+
+            <div id="instruction-detect" class="instruction-content hidden">
+                <ol>
+                    <li>Coloca el celular en una posición fija apuntando directamente hacia la mesa.</li>
+                    <li>Retira todas las invitaciones de la mesa y pulsa **Reiniciar** para memorizar el color del fondo.</li>
+                    <li>Coloca las invitaciones sobre la mesa en **cualquier posición u orientación**. ¡Pueden estar dispersas!</li>
+                    <li>El celular dibujará una caja verde numerada sobre cada una y te cantará la cuenta por voz en tiempo real.</li>
+                </ol>
+            </div>
+        </section>
+    </div>
+
+    <!-- App logic -->
+    <script src="app.js"></script>
+</body>
+</html>
