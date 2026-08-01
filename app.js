@@ -791,17 +791,18 @@ function calibrateUnitSize() {
         return;
     }
 
-    // Scan for active cells currently on screen
     const width = canvasEl.width;
     const height = canvasEl.height;
     const cellW = width / GRID_COLS;
     const cellH = height / GRID_ROWS;
     const colorDistThreshold = state.sensitivity + 10;
+    const minBlobCells = state.smoothing + 1;
 
     const frameData = ctx.getImageData(0, 0, width, height);
     const data = frameData.data;
 
-    let activeCellCount = 0;
+    // Create active grid of cells
+    let activeGrid = new Uint8Array(GRID_COLS * GRID_ROWS);
     for (let r = 0; r < GRID_ROWS; r++) {
         for (let c = 0; c < GRID_COLS; c++) {
             const sampleX = Math.floor((c + 0.5) * cellW);
@@ -820,13 +821,63 @@ function calibrateUnitSize() {
             const isSkinColor = (R > 85 && G > 55 && B > 40 && R > G && G > B && (R - G > 12) && (R - G < 70) && (G - B > 5));
 
             if (dist > colorDistThreshold && !isSkinColor) {
-                activeCellCount++;
+                activeGrid[r * GRID_COLS + c] = 1;
             }
         }
     }
 
-    if (activeCellCount > 8) {
-        state.unitSize = activeCellCount;
+    // Run BFS grouping to locate isolated blobs
+    let visited = new Uint8Array(GRID_COLS * GRID_ROWS);
+    let largestBlobSize = 0;
+
+    for (let r = 0; r < GRID_ROWS; r++) {
+        for (let c = 0; c < GRID_COLS; c++) {
+            const idx = r * GRID_COLS + c;
+            if (activeGrid[idx] && !visited[idx]) {
+                let queue = [{ c, r }];
+                visited[idx] = 1;
+                
+                let minC = c, maxC = c;
+                let minR = r, maxR = r;
+                let size = 0;
+
+                while (queue.length > 0) {
+                    const curr = queue.shift();
+                    size++;
+                    
+                    minC = Math.min(minC, curr.c);
+                    maxC = Math.max(maxC, curr.c);
+                    minR = Math.min(minR, curr.r);
+                    maxR = Math.max(maxR, curr.r);
+
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            const nc = curr.c + dc;
+                            const nr = curr.r + dr;
+                            if (nc >= 0 && nc < GRID_COLS && nr >= 0 && nr < GRID_ROWS) {
+                                const nidx = nr * GRID_COLS + nc;
+                                if (activeGrid[nidx] && !visited[nidx]) {
+                                    visited[nidx] = 1;
+                                    queue.push({ c: nc, r: nr });
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (size >= minBlobCells) {
+                    // HAND / ARM REJECTION FILTER: Ignore blobs touching grid borders
+                    const touchesBorder = (minC === 0 || maxC === GRID_COLS - 1 || minR === 0 || maxR === GRID_ROWS - 1);
+                    if (!touchesBorder && size > largestBlobSize) {
+                        largestBlobSize = size;
+                    }
+                }
+            }
+        }
+    }
+
+    if (largestBlobSize > 8) {
+        state.unitSize = largestBlobSize;
         
         sliderUnitSize.value = state.unitSize;
         valUnitSize.textContent = state.unitSize;
@@ -834,12 +885,12 @@ function calibrateUnitSize() {
         statusAlertEl.textContent = `Tamaño: ${state.unitSize} celdas`;
         statusAlertEl.style.borderColor = "var(--success)";
 
-        speakText(`Tamaño de una tarjeta calibrado a ${state.unitSize} celdas.`);
+        speakText(`Tamaño calibrado a ${state.unitSize} celdas.`);
         playSound('success');
     } else {
-        statusAlertEl.textContent = "Coloca 1 tarjeta en mesa";
+        statusAlertEl.textContent = "Coloca 1 tarjeta sin tocar bordes";
         statusAlertEl.style.borderColor = "var(--danger)";
-        speakText("No detecto suficiente papel en la mesa. Asegúrate de colocar exactamente una invitación y quitar tu mano.");
+        speakText("No encontré una tarjeta válida en el centro. Asegúrate de colocarla sin tocar los bordes y retirar tu mano.");
         playSound('warning');
     }
 }
