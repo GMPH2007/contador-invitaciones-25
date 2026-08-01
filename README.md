@@ -1,7 +1,7 @@
 # 📱 Contador Automático de Invitaciones Exacto (25)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Versión-2.5%20Pro-purple?style=for-the-badge&logo=probot" alt="Versión Pro">
+  <img src="https://img.shields.io/badge/Versión-3.0%20Ultra-purple?style=for-the-badge&logo=probot" alt="Versión Ultra">
   <img src="https://img.shields.io/badge/Tecnología-Visión%20Artificial-green?style=for-the-badge&logo=nvidia" alt="Visión Artificial">
   <img src="https://img.shields.io/badge/Despliegue-GitHub%20Pages-blue?style=for-the-badge&logo=github" alt="GitHub Pages">
 </p>
@@ -43,19 +43,24 @@ El contador incluye tres modos de detección avanzados adaptados a tu forma de t
 
 ---
 
-## 🛠️ Tecnologías y Nivel de Desarrollo Avanzado
-Esta aplicación no usa servidores lentos ni APIs de terceros pesadas. Todo el procesamiento de imágenes corre a **60 Fotogramas por Segundo (FPS) estables** en el procesador interno del celular del usuario, garantizando velocidad y privacidad al 100%.
+## 🆕 Novedades de la Versión 3.0 Ultra (¡Lo nuevo!)
+Hemos añadido mejoras masivas de rendimiento y robustez física para el uso en celulares:
 
-### 💻 Stack de Programación Utilizado:
-* **HTML5 Semantic & CSS3 Custom Variable Layouts**: Diseño responsivo premium en modo oscuro con efecto de vidrio esmerilado (*Glassmorphism*).
-* **Vanilla JavaScript ES6**: Motores de cálculo optimizados sin librerías externas para evitar lag.
-* **HTML5 Canvas & WebRTC MediaStream API**: Acceso seguro a las cámaras traseras (*environment camera*) y control de la linterna (flash de celular) para interiores.
-* **Web Speech API (Speech Synthesis)**: El celular habla en español cantando los números en vivo y alertando: *"¡Ya llegaste a 25!"* o *"Exceso"*.
-* **Web Audio API**: Generación sintética de tonos de clic y campanas de victoria.
+1. **🛡️ Inmunidad a Exposición de Cámara (Auto-Exposure Compensation)**:
+   Los celulares ajustan automáticamente el brillo al colocar la mano o el papel, lo que antes arruinaba la calibración. Ahora, un algoritmo calcula en tiempo real la desviación de iluminación en el fondo vacío y **compensa automáticamente los cambios de brillo**, manteniendo el detector 100% calibrado.
+2. **🦾 Descarte Inteligente de Brazos y Manos (Hand/Arm Rejection)**:
+   * **Filtro de Bordes (Boundary Check)**: Todo objeto detectado que toque los extremos de la pantalla es descartado inmediatamente (asumiendo que es tu mano o brazo entrando a la escena). Solo se cuentan los papeles que están libres en la mesa.
+   * **Filtro Cromático de Piel (Skin-Tone Filter)**: Analiza los valores RGB para ignorar colores cálidos del espectro de piel humana, concentrándose únicamente en el blanco y azul de tus invitaciones.
+3. **🎯 Calibración por Búsqueda de Bloque Aislado**:
+   Al presionar "Calibrar Tamaño (1 Tarjeta)", el sistema no suma ruidos externos; localiza el contorno (Blob) exacto y cerrado del papel en el centro y calibra la dimensión patrón de forma limpia.
+4. **📈 Cuadrícula de Escaneo de Alta Resolución (40x30)**:
+   Aumentamos la resolución del procesamiento en el celular a **1,200 puntos de análisis**, logrando una definición de contornos extremadamente exacta.
+5. **🐍 Script de Escritorio en Python con OpenCV (`contador.py`)**:
+   ¡Añadimos soporte para PC! Si prefieres usar una webcam en tu computadora, el repositorio ahora incluye un programa de Python profesional con procesamiento de imagen nativo, filtros de morfología matemática OpenCV y voz de Windows integrada.
 
-### 🧠 Algoritmos de Visión Artificial de Vanguardia:
-1. **BFS Connected Component Labeling**: Algoritmo en cuadrícula de 28x21 celdas para agrupar píxeles vecinos y aislar objetos independientes.
-2. **Skin Color Filtering**: Filtro cromático que analiza el espectro de color RGB para identificar y descartar brazos o manos del usuario, contando únicamente las invitaciones.
-3. **Boundary Touch Filter**: Ignora los objetos que tocan los extremos de la pantalla para evitar contar la mano al colocar la tarjeta.
-4. **Single-Buffer Memory Read**: Optimización del volcado de búfer a la CPU que reduce las llamadas de lectura gráfica a una sola por fotograma, eliminando el lag.
-5. **Autocalibración Algorítmica**: Análisis por interpolación lineal para encontrar la sensibilidad de bordes óptima automáticamente.
+---
+
+## 🛠️ Tecnologías Utilizadas
+* **Frontend**: HTML5, CSS3 (Glassmorphism), Vanilla JavaScript ES6 (sin dependencias para asegurar 60 FPS fijos).
+* **APIs de Navegador**: WebRTC MediaStream (Cámara trasera y control de Linterna/Flash), Web Speech API (Voz sintética en español), Web Audio API (Generación de ondas de audio sintéticas para alertas).
+* **Backend de Escritorio**: Python 3 con OpenCV (procesamiento de imágenes), Numpy (matrices de datos) y PyWin32 (Voz nativa de Windows).
