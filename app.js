@@ -285,7 +285,6 @@ async function applyTorchState() {
                 return;
             }
         }
-        // Fallback if not supported
         btnToggleTorch.textContent = "Linterna: N/A";
         btnToggleTorch.disabled = true;
         state.torchActive = false;
@@ -512,6 +511,12 @@ function runSlideDetection(width, height) {
     const avgB = sumB / numPixels;
     const currentBrightness = 0.299 * avgR + 0.587 * avgG + 0.114 * avgB;
 
+    // Safety guard to avoid calibrating on black frames at camera startup
+    if (currentBrightness < 18) {
+        statusAlertEl.textContent = "Iniciando sensor...";
+        return;
+    }
+
     if (state.calibratedBaseline === null) {
         state.calibratedBaseline = {
             r: avgR,
@@ -519,8 +524,10 @@ function runSlideDetection(width, height) {
             b: avgB,
             brightness: currentBrightness
         };
-        statusAlertEl.textContent = "Calibrado. Desliza tarjetas.";
+        statusAlertEl.textContent = "Listo. Pasa las tarjetas.";
         statusAlertEl.style.borderColor = "var(--success)";
+        speakText("Listo para contar. Pasa las tarjetas.");
+        return;
     }
 
     const diffR = avgR - state.calibratedBaseline.r;
@@ -528,7 +535,8 @@ function runSlideDetection(width, height) {
     const diffB = avgB - state.calibratedBaseline.b;
     const colorDist = Math.sqrt(diffR*diffR + diffG*diffG + diffB*diffB);
 
-    const presenceThreshold = 32;
+    // Adaptive threshold based on manual sensitivity slider
+    const presenceThreshold = Math.max(12, state.sensitivity + 10);
     const now = Date.now();
     const cooldown = 650;
 
@@ -555,10 +563,10 @@ function runSlideDetection(width, height) {
     }
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(rx + 6, ry + 6, 120, 24);
+    ctx.fillRect(rx + 6, ry + 6, 125, 24);
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 10px Inter';
-    ctx.fillText(`Desv. Color: ${Math.round(colorDist)}`, rx + 12, ry + 22);
+    ctx.fillText(`Desv: ${Math.round(colorDist)} | Umbral: ${Math.round(presenceThreshold)}`, rx + 12, ry + 22);
 }
 
 // Mode C: Meticulous Full Table grid object detection
@@ -566,15 +574,34 @@ function runTableDetection(width, height) {
     const cellW = width / GRID_COLS;
     const cellH = height / GRID_ROWS;
     
-    // Grid baseline calibration check
+    // Sliders adaptively control parameters:
+    const colorDistThreshold = state.sensitivity + 10;
+    const minBlobCells = state.smoothing + 1;
+
+    // Grid baseline calibration check with black frame prevention
     if (state.gridBaseline === null) {
-        state.gridBaseline = new Array(GRID_COLS * GRID_ROWS);
-        
+        // First verify average screen brightness is not pitch black
+        let sampleSum = 0;
         for (let r = 0; r < GRID_ROWS; r++) {
             for (let c = 0; c < GRID_COLS; c++) {
                 const sampleX = Math.floor((c + 0.5) * cellW);
                 const sampleY = Math.floor((r + 0.5) * cellH);
-                
+                const pixel = ctx.getImageData(sampleX, sampleY, 1, 1).data;
+                sampleSum += 0.299*pixel[0] + 0.587*pixel[1] + 0.114*pixel[2];
+            }
+        }
+        const avgBrightness = sampleSum / (GRID_COLS * GRID_ROWS);
+        
+        if (avgBrightness < 18) {
+            statusAlertEl.textContent = "Iniciando sensor...";
+            return;
+        }
+
+        state.gridBaseline = new Array(GRID_COLS * GRID_ROWS);
+        for (let r = 0; r < GRID_ROWS; r++) {
+            for (let c = 0; c < GRID_COLS; c++) {
+                const sampleX = Math.floor((c + 0.5) * cellW);
+                const sampleY = Math.floor((r + 0.5) * cellH);
                 const pixel = ctx.getImageData(sampleX, sampleY, 1, 1).data;
                 state.gridBaseline[r * GRID_COLS + c] = {
                     r: pixel[0],
@@ -584,7 +611,7 @@ function runTableDetection(width, height) {
             }
         }
         
-        statusAlertEl.textContent = "Fondo calibrado. Pon invitaciones.";
+        statusAlertEl.textContent = "Mesa calibrada. Pon tarjetas.";
         statusAlertEl.style.borderColor = "var(--success)";
         speakText("Mesa calibrada. Coloca las invitaciones.");
         return;
@@ -592,12 +619,6 @@ function runTableDetection(width, height) {
 
     // Binary grid representing presence of paper vs baseline
     let activeGrid = new Uint8Array(GRID_COLS * GRID_ROWS);
-    
-    // Sliders adaptively control parameters:
-    // Sensitivity slider (2 to 60) maps to color distance threshold (12 to 70)
-    const colorDistThreshold = state.sensitivity + 10;
-    // Smoothing slider (1 to 15) maps to minimum blob cell size (2 to 16)
-    const minBlobCells = state.smoothing + 1;
 
     for (let r = 0; r < GRID_ROWS; r++) {
         for (let c = 0; c < GRID_COLS; c++) {
@@ -611,8 +632,6 @@ function runTableDetection(width, height) {
             const dB = pixel[2] - base.b;
             const dist = Math.sqrt(dR*dR + dG*dG + dB*dB);
             
-            // Highlight cells representing new objects
-            // Also draw subtle visual dots for active cells to give high-end feedback
             if (dist > colorDistThreshold) {
                 activeGrid[r * GRID_COLS + c] = 1;
                 
@@ -625,7 +644,7 @@ function runTableDetection(width, height) {
         }
     }
 
-    // Connected Component Labeling using Breadth-First Search (BFS)
+    // Connected Component Labeling using BFS
     let visited = new Uint8Array(GRID_COLS * GRID_ROWS);
     let blobs = [];
 
@@ -633,7 +652,6 @@ function runTableDetection(width, height) {
         for (let c = 0; c < GRID_COLS; c++) {
             const idx = r * GRID_COLS + c;
             if (activeGrid[idx] && !visited[idx]) {
-                // Discover blob
                 let queue = [{ c, r }];
                 visited[idx] = 1;
                 
@@ -650,7 +668,6 @@ function runTableDetection(width, height) {
                     minR = Math.min(minR, curr.r);
                     maxR = Math.max(maxR, curr.r);
 
-                    // Check 8-connected neighbors
                     for (let dr = -1; dr <= 1; dr++) {
                         for (let dc = -1; dc <= 1; dc++) {
                             const nc = curr.c + dc;
@@ -666,8 +683,6 @@ function runTableDetection(width, height) {
                     }
                 }
                 
-                // Keep blob if size meets threshold limits
-                // Maximum limits prevent user hands or shadows from eating the whole screen (cap at 180 cells)
                 if (size >= minBlobCells && size <= 150) {
                     blobs.push({ minC, maxC, minR, maxR, size });
                 }
@@ -682,13 +697,11 @@ function runTableDetection(width, height) {
         const w = (blob.maxC - blob.minC + 1) * cellW;
         const h = (blob.maxR - blob.minR + 1) * cellH;
 
-        // Custom stylized neon bounding box
         ctx.strokeStyle = 'rgba(52, 199, 89, 0.85)';
         ctx.lineWidth = 3;
         ctx.lineJoin = 'round';
         ctx.strokeRect(x, y, w, h);
 
-        // Soft green fill inside
         ctx.fillStyle = 'rgba(52, 199, 89, 0.08)';
         ctx.fillRect(x, y, w, h);
 
@@ -699,7 +712,6 @@ function runTableDetection(width, height) {
         const textWidth = ctx.measureText(textLabel).width;
         
         ctx.beginPath();
-        // Rounded corner label on top-left of rectangle
         ctx.roundRect(x - 1, y - 18, textWidth + 12, 18, [4, 4, 0, 0]);
         ctx.fill();
 
@@ -872,6 +884,7 @@ btnModeEdge.addEventListener('click', () => {
     instructionSlide.classList.add('hidden');
     instructionDetect.classList.add('hidden');
 
+    speakText("Modo pila. Alinea los bordes con la línea roja.");
     resetCount();
 });
 
@@ -889,6 +902,7 @@ btnModeSlide.addEventListener('click', () => {
     instructionSlide.classList.remove('hidden');
     instructionDetect.classList.add('hidden');
 
+    speakText("Modo deslizar. Coloca el celular fijo en un soporte, despeja la mesa y pulsa reiniciar.");
     resetCount();
 });
 
@@ -898,8 +912,7 @@ btnModeDetect.addEventListener('click', () => {
     btnModeEdge.classList.remove('active');
     btnModeSlide.classList.remove('active');
 
-    // Hide calibrators and guides since it uses custom full-screen grids
-    edgeControls.classList.remove('hidden'); // We keep controls so they can adjust Sensitivity (Color threshold) and Smoothing (Min size)
+    edgeControls.classList.remove('hidden');
     edgeGuide.classList.add('hidden');
     slideRoi.classList.add('hidden');
 
@@ -907,6 +920,7 @@ btnModeDetect.addEventListener('click', () => {
     instructionSlide.classList.add('hidden');
     instructionDetect.classList.remove('hidden');
 
+    speakText("Modo mesa. Coloca el celular fijo apuntando a la mesa, retira las tarjetas y pulsa reiniciar.");
     resetCount();
 });
 
