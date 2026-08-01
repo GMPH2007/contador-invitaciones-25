@@ -212,7 +212,7 @@ function updateAndDrawConfetti(ctx, width, height) {
         ctx.lineWidth = p.r;
         ctx.strokeStyle = p.color;
         ctx.moveTo(p.x + p.tilt + p.r / 2, p.y);
-        ctx.lineTo(p.x + p.tilt, y + p.tilt + p.r / 2);
+        ctx.lineTo(p.x + p.tilt, p.y + p.tilt + p.r / 2);
         ctx.stroke();
     }
     
