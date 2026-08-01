@@ -120,14 +120,35 @@
                     <input type="range" id="slider-smooth" min="1" max="15" value="5">
                 </div>
 
-                <!-- Autocalibrate button -->
-                <button id="btn-autocalibrate" class="action-btn btn-accent">
-                    <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
-                    Autocalibrar para <span id="autocalibrate-target-num">25</span>
-                </button>
+                <!-- Unit Size Slider (Mode C) -->
+                <div id="unit-size-row" class="slider-row hidden">
+                    <div class="slider-label-row">
+                        <label for="slider-unit-size">Tamaño Tarjeta (Celdas):</label>
+                        <span id="val-unit-size">45</span>
+                    </div>
+                    <input type="range" id="slider-unit-size" min="15" max="120" value="45">
+                </div>
+
+                <!-- Autocalibrate button (Mode A) -->
+                <div id="edge-calibration-box">
+                    <button id="btn-autocalibrate" class="action-btn btn-accent">
+                        <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H7c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.04-.42 1.99-1.07 2.75z"/></svg>
+                        Autocalibrar para <span id="autocalibrate-target-num">25</span>
+                    </button>
+                </div>
+
+                <!-- Unit Calibration button (Mode C) -->
+                <div id="detect-calibration-box" class="hidden" style="margin-top: 10px; width: 100%;">
+                    <button id="btn-calibrate-unit" class="action-btn btn-accent" style="background: linear-gradient(135deg, #34c759, #28a745); width: 100%;">
+                        Calibrar Tamaño (1 Tarjeta)
+                    </button>
+                    <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px; text-align: center; line-height: 1.3;">
+                        Coloca exactamente 1 tarjeta en el centro de la mesa y pulsa este botón para calibrar su tamaño.
+                    </div>
+                </div>
                 
                 <!-- Real-time signal chart -->
-                <div class="chart-container">
+                <div id="edge-chart-box" class="chart-container">
                     <canvas id="chart-canvas" height="60"></canvas>
                     <div class="chart-title">Señal de contraste de bordes</div>
                 </div>

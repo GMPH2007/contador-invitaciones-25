@@ -29,6 +29,7 @@ let state = {
     targetCount: 25, // Default target
     sensitivity: 15,
     smoothing: 5,
+    unitSize: 45, // Default grid cells per invitation (Mode C)
     currentFacingMode: 'environment', // Start with back camera
     videoStream: null,
     calibratedBaseline: null, // Baseline for slide mode
@@ -71,11 +72,14 @@ const btnCameraToggle = document.getElementById('btn-camera-toggle');
 const btnToggleVoice = document.getElementById('btn-toggle-voice');
 const btnToggleTorch = document.getElementById('btn-toggle-torch');
 const btnAutocalibrate = document.getElementById('btn-autocalibrate');
+const btnCalibrateUnit = document.getElementById('btn-calibrate-unit');
 
 const sliderSens = document.getElementById('slider-sens');
 const sliderSmooth = document.getElementById('slider-smooth');
+const sliderUnitSize = document.getElementById('slider-unit-size');
 const valSens = document.getElementById('val-sens');
 const valSmooth = document.getElementById('val-smooth');
+const valUnitSize = document.getElementById('val-unit-size');
 
 const edgeControls = document.getElementById('edge-controls');
 const edgeGuide = document.getElementById('edge-guide');
@@ -83,6 +87,11 @@ const slideRoi = document.getElementById('slide-roi');
 const instructionEdge = document.getElementById('instruction-edge');
 const instructionSlide = document.getElementById('instruction-slide');
 const instructionDetect = document.getElementById('instruction-detect');
+
+const unitSizeRow = document.getElementById('unit-size-row');
+const edgeCalibrationBox = document.getElementById('edge-calibration-box');
+const detectCalibrationBox = document.getElementById('detect-calibration-box');
+const edgeChartBox = document.getElementById('edge-chart-box');
 
 // Speech & Audio Synthesis
 let audioCtx = null;
@@ -559,7 +568,7 @@ function runSlideDetection(frameData, width, height) {
     const now = Date.now();
     const cooldown = 650;
 
-    // TRIGGER logic: Count increment requires color shift AND active motion (avoids static shadow locks)
+    // TRIGGER logic: Count increment requires color shift AND active motion
     if (colorDist > presenceThreshold) {
         ctx.strokeStyle = 'var(--danger)';
         ctx.lineWidth = 4;
@@ -573,8 +582,7 @@ function runSlideDetection(frameData, width, height) {
             updateCounterDisplay(state.count + 1);
         }
 
-        // Timeout fallback: If active state is locked for > 1.3 seconds (user leaves hand or card inside),
-        // release the lock and slowly blend current color into baseline to auto-recalibrate
+        // Timeout fallback
         if (state.slideActive && (now - state.lastSlideTime > 1300)) {
             state.slideActive = false;
             state.calibratedBaseline.r = state.calibratedBaseline.r * 0.75 + avgR * 0.25;
@@ -586,7 +594,6 @@ function runSlideDetection(frameData, width, height) {
         ctx.lineWidth = 3;
         ctx.strokeRect(rx, ry, rw, rh);
 
-        // Deactivate slide state when color returns to baseline range
         if (state.slideActive && (now - state.lastSlideTime > 250)) {
             state.slideActive = false;
         }
@@ -599,7 +606,7 @@ function runSlideDetection(frameData, width, height) {
     ctx.fillText(`Desv: ${Math.round(colorDist)} | Mov: ${Math.round(motionVal)} | Umb: ${Math.round(presenceThreshold)}`, rx + 10, ry + 16);
 }
 
-// Mode C: Meticulous Full Table grid object detection using highly optimized single-buffer array reads (0 ms blocking lag!)
+// Mode C: Meticulous Full Table grid object detection with area-based bundle estimation ("conteo en conjunto")
 function runTableDetection(frameData, width, height) {
     const cellW = width / GRID_COLS;
     const cellH = height / GRID_ROWS;
@@ -665,8 +672,6 @@ function runTableDetection(frameData, width, height) {
             const dist = Math.sqrt(dR*dR + dG*dG + dB*dB);
             
             // HAND / ARM REJECTION FILTER: Skin tone detection
-            // Human skin typically has: R > 90, G > 60, B > 45, R > G, G > B and high saturation of red/yellow.
-            // White/blue invitations are highly neutral (R, G, B are close to each other, low saturation).
             const R = data[idx];
             const G = data[idx+1];
             const B = data[idx+2];
@@ -723,11 +728,9 @@ function runTableDetection(frameData, width, height) {
                     }
                 }
                 
-                // Keep blob if size meets threshold limits
-                if (size >= minBlobCells && size <= 150) {
+                // Keep blob if size meets minimum threshold
+                if (size >= minBlobCells) {
                     // HAND / ARM REJECTION FILTER: Boundary touch detection
-                    // Hand/arm enters from borders, so it will touch at least one outer boundary of the grid.
-                    // An invitation placed on the table is self-contained and does NOT touch the borders.
                     const touchesBorder = (minC === 0 || maxC === GRID_COLS - 1 || minR === 0 || maxR === GRID_ROWS - 1);
                     
                     if (!touchesBorder) {
@@ -738,12 +741,18 @@ function runTableDetection(frameData, width, height) {
         }
     }
 
-    // Draw Bounding Boxes and labels on screen
-    blobs.forEach((blob, i) => {
+    // Draw Bounding Boxes and calculate total count with bundle estimation
+    let totalEstimatedCount = 0;
+
+    blobs.forEach((blob) => {
         const x = blob.minC * cellW;
         const y = blob.minR * cellH;
         const w = (blob.maxC - blob.minC + 1) * cellW;
         const h = (blob.maxR - blob.minR + 1) * cellH;
+
+        // Bundle estimation: Divide the blob size (active cells) by state.unitSize
+        const estimatedQuantity = Math.max(1, Math.round(blob.size / state.unitSize));
+        totalEstimatedCount += estimatedQuantity;
 
         ctx.strokeStyle = 'rgba(52, 199, 89, 0.85)';
         ctx.lineWidth = 3;
@@ -753,9 +762,9 @@ function runTableDetection(frameData, width, height) {
         ctx.fillStyle = 'rgba(52, 199, 89, 0.08)';
         ctx.fillRect(x, y, w, h);
 
-        // Label box
+        // Label box (displays count in the bundle)
         ctx.fillStyle = 'var(--success)';
-        const textLabel = `INV #${i+1}`;
+        const textLabel = estimatedQuantity > 1 ? `CANT: ${estimatedQuantity}` : 'INV #1';
         ctx.font = 'bold 11px Inter, sans-serif';
         const textWidth = ctx.measureText(textLabel).width;
         
@@ -767,7 +776,72 @@ function runTableDetection(frameData, width, height) {
         ctx.fillText(textLabel, x + 6, y - 5);
     });
 
-    updateCounterDisplay(blobs.length);
+    updateCounterDisplay(totalEstimatedCount);
+}
+
+// Calibrate the unit size of a single invitation based on the active blob on the table
+function calibrateUnitSize() {
+    if (state.mode !== 'detect') {
+        speakText("Activa el Modo Mesa primero");
+        return;
+    }
+
+    if (state.gridBaseline === null) {
+        speakText("Primero calibra la mesa vacía con el botón Reiniciar.");
+        return;
+    }
+
+    // Scan for active cells currently on screen
+    const width = canvasEl.width;
+    const height = canvasEl.height;
+    const cellW = width / GRID_COLS;
+    const cellH = height / GRID_ROWS;
+    const colorDistThreshold = state.sensitivity + 10;
+
+    const frameData = ctx.getImageData(0, 0, width, height);
+    const data = frameData.data;
+
+    let activeCellCount = 0;
+    for (let r = 0; r < GRID_ROWS; r++) {
+        for (let c = 0; c < GRID_COLS; c++) {
+            const sampleX = Math.floor((c + 0.5) * cellW);
+            const sampleY = Math.floor((r + 0.5) * cellH);
+            const idx = (sampleY * width + sampleX) * 4;
+            
+            const base = state.gridBaseline[r * GRID_COLS + c];
+            const dR = data[idx] - base.r;
+            const dG = data[idx+1] - base.g;
+            const dB = data[idx+2] - base.b;
+            const dist = Math.sqrt(dR*dR + dG*dG + dB*dB);
+            
+            const R = data[idx];
+            const G = data[idx+1];
+            const B = data[idx+2];
+            const isSkinColor = (R > 85 && G > 55 && B > 40 && R > G && G > B && (R - G > 12) && (R - G < 70) && (G - B > 5));
+
+            if (dist > colorDistThreshold && !isSkinColor) {
+                activeCellCount++;
+            }
+        }
+    }
+
+    if (activeCellCount > 8) {
+        state.unitSize = activeCellCount;
+        
+        sliderUnitSize.value = state.unitSize;
+        valUnitSize.textContent = state.unitSize;
+
+        statusAlertEl.textContent = `Tamaño: ${state.unitSize} celdas`;
+        statusAlertEl.style.borderColor = "var(--success)";
+
+        speakText(`Tamaño de una tarjeta calibrado a ${state.unitSize} celdas.`);
+        playSound('success');
+    } else {
+        statusAlertEl.textContent = "Coloca 1 tarjeta en mesa";
+        statusAlertEl.style.borderColor = "var(--danger)";
+        speakText("No detecto suficiente papel en la mesa. Asegúrate de colocar exactamente una invitación y quitar tu mano.");
+        playSound('warning');
+    }
 }
 
 // Chart visual rendering
@@ -932,6 +1006,12 @@ btnModeEdge.addEventListener('click', () => {
     instructionSlide.classList.add('hidden');
     instructionDetect.classList.add('hidden');
 
+    // UI Panel switches
+    unitSizeRow.classList.add('hidden');
+    edgeCalibrationBox.classList.remove('hidden');
+    detectCalibrationBox.classList.add('hidden');
+    edgeChartBox.classList.remove('hidden');
+
     speakText("Modo pila. Alinea los bordes con la línea roja.");
     resetCount();
 });
@@ -949,6 +1029,12 @@ btnModeSlide.addEventListener('click', () => {
     instructionEdge.classList.add('hidden');
     instructionSlide.classList.remove('hidden');
     instructionDetect.classList.add('hidden');
+
+    // UI Panel switches
+    unitSizeRow.classList.add('hidden');
+    edgeCalibrationBox.classList.add('hidden');
+    detectCalibrationBox.classList.add('hidden');
+    edgeChartBox.classList.add('hidden');
 
     speakText("Modo deslizar. Coloca el celular fijo en un soporte, despeja la mesa y pulsa reiniciar.");
     resetCount();
@@ -968,6 +1054,12 @@ btnModeDetect.addEventListener('click', () => {
     instructionSlide.classList.add('hidden');
     instructionDetect.classList.remove('hidden');
 
+    // UI Panel switches
+    unitSizeRow.classList.remove('hidden');
+    edgeCalibrationBox.classList.add('hidden');
+    detectCalibrationBox.classList.remove('hidden');
+    edgeChartBox.classList.add('hidden');
+
     speakText("Modo mesa. Coloca el celular fijo apuntando a la mesa, retira las tarjetas y pulsa reiniciar.");
     resetCount();
 });
@@ -976,6 +1068,7 @@ btnReset.addEventListener('click', resetCount);
 btnCameraToggle.addEventListener('click', toggleCamera);
 btnToggleTorch.addEventListener('click', toggleTorch);
 btnAutocalibrate.addEventListener('click', autoCalibrate);
+btnCalibrateUnit.addEventListener('click', calibrateUnitSize);
 
 // Voice toggle
 btnToggleVoice.addEventListener('click', () => {
@@ -1019,6 +1112,11 @@ sliderSens.addEventListener('input', (e) => {
 sliderSmooth.addEventListener('input', (e) => {
     state.smoothing = parseInt(e.target.value);
     valSmooth.textContent = state.smoothing;
+});
+
+sliderUnitSize.addEventListener('input', (e) => {
+    state.unitSize = parseInt(e.target.value);
+    valUnitSize.textContent = state.unitSize;
 });
 
 // DOM Load
